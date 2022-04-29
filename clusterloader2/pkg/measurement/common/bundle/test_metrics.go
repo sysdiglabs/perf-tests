@@ -84,6 +84,9 @@ func createTestMetricsMeasurement() measurement.Measurement {
 	if metrics.clusterOOMsTracker, err = measurement.CreateMeasurement("ClusterOOMsTracker"); err != nil {
 		klog.Errorf("%v: clusterOOMsTracker creation error: %v", metrics, err)
 	}
+	if metrics.sysdigAgent, err = measurement.CreateMeasurement("SysdigAgent"); err != nil {
+		klog.Errorf("%v: sysdig creation error: %v", metrics, err)
+	}
 	return &metrics
 }
 
@@ -103,6 +106,7 @@ type testMetrics struct {
 	controllerManagerMemoryProfile measurement.Measurement
 	systemPodMetrics               measurement.Measurement
 	clusterOOMsTracker             measurement.Measurement
+	sysdigAgent                    measurement.Measurement
 }
 
 // Execute supports two actions. start - which sets up all metrics.

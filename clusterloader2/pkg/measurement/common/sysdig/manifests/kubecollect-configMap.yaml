@@ -1,0 +1,68 @@
+{{$delegatedNum := DefaultParam .CL2_DELEGATED_NUM 1}}
+{{$coldStartNum := DefaultParam .CL2_COLD_START_NUM 10}}
+{{$networkTopologyEnabled := DefaultParam .CL2_NETWORK_TOPOLOGY_ENABLED true}}
+{{$leaseDuration := DefaultParam .CL2_LEASE_DURATION 60}}
+{{$leaseRenewDeadline := DefaultParam .CL2_LEASE_RENEW_DEADLINE 30}}
+{{$leaseRetryPeriod := DefaultParam .CL2_LEASE_RETRY_PERIOD 15}}
+{{$perNodeConnDelay := DefaultParam .CL2_PER_NODE_CONN_DELAY 0.25}}
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config
+  namespace: kubemark
+data:
+  k8s_resources_stream_request.json: |
+    {
+      "url": "",
+      "ca_cert": "",
+      "client_cert": "",
+      "client_key": "",
+      "queue_len": 10000,
+      "startup_gc": 10,
+      "startup_inf_wait_time_s": 5,
+      "startup_tick_interval_ms": 100,
+      "startup_low_ticks_needed": 10,
+      "startup_low_evt_threshold": 50,
+      "filter_empty": true,
+      "ssl_verify_certificate": false,
+      "auth_token": "/var/run/secrets/kubernetes.io/serviceaccount/token",
+      "include_types": [
+        "services",
+        "resourcequotas",
+        "persistentvolumes",
+        "persistentvolumeclaims",
+        "storageclasses"
+      ],
+      "event_counts_log_time": 0,
+      "batch_msgs_queue_len": 100,
+      "batch_msgs_tick_interval_ms": 100,
+      "max_rnd_conn_delay": 0,
+      "pod_status_allowlist": [
+          "Pending"
+      ],
+      "thin_cointerface": true,
+      "pod_prefix_for_cidr_retrieval": [
+          "kube-controller-manager"
+      ],
+      "terminated_pods_enabled": false,
+      "completed_jobs_enabled": false,
+      "cold_start_num": {{$coldStartNum}},
+      "max_wait_for_lock": 0,
+      "max_cold_start_duration": 60,
+      "enforce_leader_election": true,
+      "delegated_num": {{$delegatedNum}},
+      "leader_election": {
+        "lease_duration": {{$leaseDuration}},
+        "renew_deadline": {{$leaseRenewDeadline}},
+        "retry_period": {{$leaseRetryPeriod}},
+        "namespace": "default"
+      },
+      "cointerface_delegation": true,
+      "min_rnd_conn_delay": 0,
+      "per_node_conn_delay": {{$perNodeConnDelay}},
+      "annotation_conf": {},
+      "terminated_pods_enabled_if_delegated": true,
+      "network_topology_enabled": {{$networkTopologyEnabled}},
+      "cluster_size": {{.Nodes}}
+    }
