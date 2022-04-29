@@ -30,6 +30,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog"
+	v1helper "k8s.io/kubernetes/pkg/apis/core/v1/helper"
 	"k8s.io/perf-tests/clusterloader2/pkg/measurement/util/informer"
 )
 
@@ -73,6 +74,7 @@ type NodeCounter struct {
 	client       clientset.Interface
 	nodeSelector labels.Selector
 	affinity     *corev1.Affinity
+	tolerations  []corev1.Toleration
 
 	mu       sync.Mutex
 	replicas int
@@ -81,11 +83,12 @@ type NodeCounter struct {
 var _ ReplicasWatcher = &NodeCounter{}
 
 // NewNodeCounter returns a new nodeCounter that return a number of objects matching nodeSelector and affinity.
-func NewNodeCounter(client clientset.Interface, nodeSelector labels.Selector, affinity *corev1.Affinity) *NodeCounter {
+func NewNodeCounter(client clientset.Interface, nodeSelector labels.Selector, affinity *corev1.Affinity, tolerations []corev1.Toleration) *NodeCounter {
 	return &NodeCounter{
 		client:       client,
 		nodeSelector: nodeSelector,
 		affinity:     affinity,
+		tolerations:  tolerations,
 	}
 }
 
@@ -147,8 +150,12 @@ func (n *NodeCounter) shouldRun(obj interface{}) (bool, error) {
 	if !ok {
 		return false, fmt.Errorf("unexpected type of obj: %v. got %T, want *corev1.Node", obj, obj)
 	}
+	// This is not perfect as does not take into account the taint effect and
+	// tolerationSeconds, but it's a good enough approximation for the test
+	// needs.
+	tolerated, _ := v1helper.GetMatchingTolerations(node.Spec.Taints, n.tolerations)
 	matched, err := podMatchesNodeAffinity(n.affinity, node)
-	return !node.Spec.Unschedulable && matched, err
+	return !node.Spec.Unschedulable && matched && tolerated, err
 }
 
 // GetReplicasOnce starts ReplicasWatcher and gets a number of replicas.

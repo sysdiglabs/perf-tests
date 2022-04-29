@@ -260,7 +260,7 @@ func GetReplicasFromRuntimeObject(c clientset.Interface, obj runtime.Object) (Re
 		}
 		return &ConstReplicas{0}, nil
 	case *appsv1.DaemonSet:
-		return getNumSchedulableNodesMatchingNodeSelectorAndNodeAffinity(c, typed.Spec.Template.Spec.NodeSelector, typed.Spec.Template.Spec.Affinity)
+		return getNumSchedulableNodesMatchingNodeSelectorAndNodeAffinity(c, typed.Spec.Template.Spec.NodeSelector, typed.Spec.Template.Spec.Affinity, typed.Spec.Template.Spec.Tolerations)
 	case *batch.Job:
 		if typed.Spec.Parallelism != nil {
 			return &ConstReplicas{int(*typed.Spec.Parallelism)}, nil
@@ -272,12 +272,12 @@ func GetReplicasFromRuntimeObject(c clientset.Interface, obj runtime.Object) (Re
 }
 
 // getNumSchedulableNodesMatchingNodeSelectorAndNodeAffinity returns the number of schedulable nodes matching both nodeSelector and NodeAffinity.
-func getNumSchedulableNodesMatchingNodeSelectorAndNodeAffinity(c clientset.Interface, nodeSelector map[string]string, affinity *corev1.Affinity) (ReplicasWatcher, error) {
+func getNumSchedulableNodesMatchingNodeSelectorAndNodeAffinity(c clientset.Interface, nodeSelector map[string]string, affinity *corev1.Affinity, tolerations []corev1.Toleration) (ReplicasWatcher, error) {
 	selector, err := metav1.LabelSelectorAsSelector(metav1.SetAsLabelSelector(nodeSelector))
 	if err != nil {
 		return nil, err
 	}
-	return NewNodeCounter(c, selector, affinity), nil
+	return NewNodeCounter(c, selector, affinity, tolerations), nil
 }
 
 // Note: This function assumes each controller has field Spec.Replicas, except DaemonSets and Job.
@@ -300,7 +300,11 @@ func tryAcquireReplicasFromUnstructuredSpec(c clientset.Interface, spec map[stri
 		if err != nil {
 			return nil, err
 		}
-		return getNumSchedulableNodesMatchingNodeSelectorAndNodeAffinity(c, nodeSelector, affinity)
+		tolerations, err := getDaemonSetTolerationsFromUnstructuredSpec(spec)
+		if err != nil {
+			return nil, err
+		}
+		return getNumSchedulableNodesMatchingNodeSelectorAndNodeAffinity(c, nodeSelector, affinity, tolerations)
 	case "Job":
 		replicas, found, err := unstructured.NestedInt64(spec, "parallelism")
 		if err != nil {
@@ -351,6 +355,33 @@ func getDaemonSetAffinityFromUnstructuredSpec(spec map[string]interface{}) (*cor
 	affinity := &corev1.Affinity{}
 	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredAffinity, affinity)
 	return affinity, err
+}
+
+func getDaemonSetTolerationsFromUnstructuredSpec(spec map[string]interface{}) ([]corev1.Toleration, error) {
+	template, found, err := unstructured.NestedMap(spec, "template")
+	if err != nil || !found {
+		return nil, err
+	}
+	podSpec, found, err := unstructured.NestedMap(template, "spec")
+	if err != nil || !found {
+		return nil, err
+	}
+	unstructuredTolerations, found, err := unstructured.NestedSlice(podSpec, "tolerations")
+	if err != nil || !found {
+		return nil, err
+	}
+	tolerations := make([]corev1.Toleration, len(unstructuredTolerations))
+	for i, val := range unstructuredTolerations {
+		if unstructuredToleration, ok := val.(map[string]interface{}); ok {
+			err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredToleration, &tolerations[i])
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("expecting toleration but got object %v is of the type %T", val, val)
+		}
+	}
+	return tolerations, err
 }
 
 // IsEqualRuntimeObjectsSpec returns true if given runtime objects have identical specs.
