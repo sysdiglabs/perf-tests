@@ -1,10 +1,11 @@
-{{$delegatedNum := DefaultParam .CL2_DELEGATED_NUM 1}}
+{{$thinCointerface := DefaultParam .CL2_THIN_COINTERFACE false}}
 {{$coldStartNum := DefaultParam .CL2_COLD_START_NUM 10}}
-{{$networkTopologyEnabled := DefaultParam .CL2_NETWORK_TOPOLOGY_ENABLED true}}
+{{$delegatedNum := DefaultParam .CL2_DELEGATED_NUM 1}}
 {{$leaseDuration := DefaultParam .CL2_LEASE_DURATION 60}}
 {{$leaseRenewDeadline := DefaultParam .CL2_LEASE_RENEW_DEADLINE 30}}
 {{$leaseRetryPeriod := DefaultParam .CL2_LEASE_RETRY_PERIOD 15}}
 {{$perNodeConnDelay := DefaultParam .CL2_PER_NODE_CONN_DELAY 0.25}}
+{{$networkTopologyEnabled := DefaultParam .CL2_NETWORK_TOPOLOGY_ENABLED true}}
 
 apiVersion: v1
 kind: ConfigMap
@@ -39,10 +40,16 @@ data:
       "batch_msgs_tick_interval_ms": 100,
       "max_rnd_conn_delay": 0,
       "pod_status_allowlist": [
+          "Evicted",
+          "DeadlineExceeded",
+          "Error",
+          "ContainerCreating",
+          "CrashLoopBackOff",
           "Pending"
       ],
-      "thin_cointerface": true,
+      "thin_cointerface": {{$thinCointerface}},
       "pod_prefix_for_cidr_retrieval": [
+          "kube-apiserver",
           "kube-controller-manager"
       ],
       "terminated_pods_enabled": false,
