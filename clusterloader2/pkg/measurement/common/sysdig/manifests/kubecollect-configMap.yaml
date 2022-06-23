@@ -68,7 +68,7 @@ data:
       "annotation_conf": {},
       "terminated_pods_enabled_if_delegated": true,
       "network_topology_enabled": {{$networkTopologyEnabled}},
-      "cluster_size": {{.Nodes}}
+      "cluster_size": {{.Nodes}},
       "kubelet" : {
           "enabled": {{$podsFromKubeletEnabled}},
           "frequency": 10,
