@@ -6,6 +6,8 @@
 {{$leaseRetryPeriod := DefaultParam .CL2_LEASE_RETRY_PERIOD 15}}
 {{$perNodeConnDelay := DefaultParam .CL2_PER_NODE_CONN_DELAY 0.25}}
 {{$networkTopologyEnabled := DefaultParam .CL2_NETWORK_TOPOLOGY_ENABLED true}}
+{{$podsFromKubeletEnabled := DefaultParam .CL2_PODS_FROM_KUBELET_ENABLED false}}
+{{$bePushEnabled := DefaultParam .CL2_BE_PUSH_ENABLED false}}
 
 apiVersion: v1
 kind: ConfigMap
@@ -29,11 +31,6 @@ data:
       "ssl_verify_certificate": false,
       "auth_token": "/var/run/secrets/kubernetes.io/serviceaccount/token",
       "include_types": [
-        "services",
-        "resourcequotas",
-        "persistentvolumes",
-        "persistentvolumeclaims",
-        "storageclasses"
       ],
       "event_counts_log_time": 0,
       "batch_msgs_queue_len": 100,
@@ -72,4 +69,11 @@ data:
       "terminated_pods_enabled_if_delegated": true,
       "network_topology_enabled": {{$networkTopologyEnabled}},
       "cluster_size": {{.Nodes}}
+      "kubelet" : {
+          "enabled": {{$podsFromKubeletEnabled}},
+          "frequency": 10,
+          "host": "127.0.0.1",
+          "port": 10250
+      },
+      "k8s_state_be_push_enabled": {{$bePushEnabled}}
     }
