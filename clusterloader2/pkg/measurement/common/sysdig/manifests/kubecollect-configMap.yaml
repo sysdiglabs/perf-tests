@@ -73,7 +73,8 @@ data:
           "enabled": {{$podsFromKubeletEnabled}},
           "frequency": 10,
           "host": "127.0.0.1",
-          "port": 10250
+          "port": 10250,
+          "use_http": true
       },
       "k8s_state_be_push_enabled": {{$bePushEnabled}}
     }
