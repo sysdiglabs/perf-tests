@@ -19,6 +19,8 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"path"
 	"time"
@@ -44,6 +46,7 @@ import (
 
 	_ "k8s.io/perf-tests/clusterloader2/pkg/measurement/common"
 	_ "k8s.io/perf-tests/clusterloader2/pkg/measurement/common/bundle"
+	_ "k8s.io/perf-tests/clusterloader2/pkg/measurement/common/dns"
 	_ "k8s.io/perf-tests/clusterloader2/pkg/measurement/common/network"
 	_ "k8s.io/perf-tests/clusterloader2/pkg/measurement/common/probes"
 	_ "k8s.io/perf-tests/clusterloader2/pkg/measurement/common/slos"
@@ -60,6 +63,7 @@ var (
 	providerInitOptions provider.InitOptions
 	testConfigPaths     []string
 	testSuiteConfigPath string
+	port                int
 )
 
 func initClusterFlags() {
@@ -120,12 +124,13 @@ func validateClusterFlags() *errors.ErrorList {
 
 func initFlags() {
 	flags.StringVar(&clusterLoaderConfig.ReportDir, "report-dir", "", "Path to the directory where the reports should be saved. Default is empty, which cause reports being written to standard output.")
-	flags.BoolEnvVar(&clusterLoaderConfig.EnableExecService, "enable-exec-service", "ENABLE_EXEC_SERVICE", true, "Whether to enable exec service that allows executing arbitrary commands from a pod running in the cluster.")
 	// TODO(https://github.com/kubernetes/perf-tests/issues/641): Remove testconfig and testoverrides flags when test suite is fully supported.
 	flags.StringArrayVar(&testConfigPaths, "testconfig", []string{}, "Paths to the test config files")
 	flags.StringArrayVar(&clusterLoaderConfig.OverridePaths, "testoverrides", []string{}, "Paths to the config overrides file. The latter overrides take precedence over changes in former files.")
 	flags.StringVar(&testSuiteConfigPath, "testsuite", "", "Path to the test suite config file")
+	flags.IntVar(&port, "port", 8000, "Port to be used by http server with pprof.")
 	initClusterFlags()
+	execservice.InitFlags(&clusterLoaderConfig.ExecServiceConfig)
 	modifier.InitFlags(&clusterLoaderConfig.ModifierConfig)
 	prometheus.InitFlags(&clusterLoaderConfig.PrometheusConfig)
 }
@@ -147,6 +152,9 @@ func completeConfig(m *framework.MultiClientSet) error {
 	if clusterLoaderConfig.ClusterConfig.Nodes == 0 {
 		nodes, err := util.GetSchedulableUntainedNodesNumber(m.GetClient())
 		if err != nil {
+			if clusterLoaderConfig.ClusterConfig.Provider.Name() == provider.KCPName {
+				return fmt.Errorf("getting number of nodes error: %v, please create nodes.core CRD", err)
+			}
 			return fmt.Errorf("getting number of nodes error: %v", err)
 		}
 		clusterLoaderConfig.ClusterConfig.Nodes = nodes
@@ -191,6 +199,9 @@ func completeConfig(m *framework.MultiClientSet) error {
 }
 
 func verifyCluster(c kubernetes.Interface) error {
+	if clusterLoaderConfig.ClusterConfig.Provider.Name() == provider.KCPName {
+		return nil
+	}
 	numSchedulableNodes, err := util.GetSchedulableUntainedNodesNumber(c)
 	if err != nil {
 		return err
@@ -202,6 +213,9 @@ func verifyCluster(c kubernetes.Interface) error {
 }
 
 func getClientsNumber(nodesNumber int) int {
+	if clusterLoaderConfig.ClusterConfig.Provider.Name() == provider.KCPName {
+		return 1
+	}
 	return (nodesNumber + nodesPerClients - 1) / nodesPerClients
 }
 
@@ -246,6 +260,13 @@ func main() {
 	if err := flags.Parse(); err != nil {
 		klog.Exitf("Flag parse failed: %v", err)
 	}
+
+	// Start http server with pprof.
+	go func() {
+		klog.Infof("Listening on %d", port)
+		err := http.ListenAndServe(fmt.Sprintf("localhost:%d", port), nil)
+		klog.Errorf("http server unexpectedly ended: %v", err)
+	}()
 
 	provider, err := provider.NewProvider(&providerInitOptions)
 	if err != nil {
@@ -304,8 +325,8 @@ func main() {
 			prometheusController.EnableTearDownPrometheusStackOnInterrupt()
 		}
 	}
-	if clusterLoaderConfig.EnableExecService {
-		if err := execservice.SetUpExecService(f); err != nil {
+	if clusterLoaderConfig.ExecServiceConfig.Enable {
+		if err := execservice.SetUpExecService(f, clusterLoaderConfig.ExecServiceConfig); err != nil {
 			klog.Exitf("Error while setting up exec service: %v", err)
 		}
 	}
@@ -369,7 +390,7 @@ func main() {
 			klog.Errorf("Error while tearing down prometheus stack: %v", err)
 		}
 	}
-	if clusterLoaderConfig.EnableExecService {
+	if clusterLoaderConfig.ExecServiceConfig.Enable {
 		if err := execservice.TearDownExecService(f); err != nil {
 			klog.Errorf("Error while tearing down exec service: %v", err)
 		}

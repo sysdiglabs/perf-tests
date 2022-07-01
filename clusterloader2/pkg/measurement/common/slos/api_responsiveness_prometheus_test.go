@@ -21,20 +21,19 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
-	"gopkg.in/yaml.v2"
 	"k8s.io/klog"
 	"k8s.io/perf-tests/clusterloader2/pkg/errors"
 	"k8s.io/perf-tests/clusterloader2/pkg/measurement"
 	"k8s.io/perf-tests/clusterloader2/pkg/measurement/common/executors"
 	measurementutil "k8s.io/perf-tests/clusterloader2/pkg/measurement/util"
+
+	_ "k8s.io/perf-tests/clusterloader2/pkg/flags" // init klog
 )
 
 var (
@@ -49,7 +48,6 @@ var (
 
 func turnOffLoggingToStderrInKlog(t *testing.T) {
 	if klogLogToStderr {
-		klog.InitFlags(nil)
 		err := flag.Set("logtostderr", "false")
 		if err != nil {
 			t.Errorf("Unable to set flag %v", err)
@@ -88,55 +86,6 @@ type summaryEntry struct {
 
 type fakeQueryExecutor struct {
 	samples []*sample
-}
-
-type rule struct {
-	Expr   string `yaml:"expr"`
-	Record string `yaml:"record"`
-	Labels struct {
-		Quantile string `yaml:"quantile"`
-	} `yaml:"labels"`
-}
-
-type group struct {
-	Name  string `yaml:"name"`
-	Rules []rule `yaml:"rules"`
-}
-
-//prometheusRuleManifest mimics the structure of PrometheusRule object used by prometheus operator
-//https://github.com/prometheus-operator/prometheus-operator/blob/main/pkg/apis/monitoring/v1/types.go#L1393
-type prometheusRuleManifest struct {
-	Spec struct {
-		Groups []group `yaml:"groups"`
-	} `yaml:"spec"`
-}
-
-func createRulesFile(rulesManifestFile string) (*os.File, error) {
-	r, err := ioutil.ReadFile(rulesManifestFile)
-	if err != nil {
-		return nil, err
-	}
-
-	rulesManifest := new(prometheusRuleManifest)
-	err = yaml.Unmarshal(r, rulesManifest)
-	if err != nil {
-		return nil, err
-	}
-
-	tempFile, err := ioutil.TempFile("", "")
-	if err != nil {
-		return nil, err
-	}
-	b, err := yaml.Marshal(rulesManifest.Spec)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = tempFile.Write(b)
-	if err != nil {
-		return nil, err
-	}
-	return tempFile, nil
 }
 
 func (ex *fakeQueryExecutor) Query(query string, queryTime time.Time) ([]*model.Sample, error) {
@@ -267,14 +216,9 @@ func TestAPIResponsivenessSLOFailures(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, err := createRulesFile("../../../prometheus/manifests/prometheus-rules.yaml")
+			executor, err := executors.NewPromqlExecutor(fmt.Sprintf("../testdata/api_responsiveness_prometheus/%s", tc.testSeriesFile))
 			if err != nil {
-				t.Fatalf("failed to create ruels file: %v", err)
-			}
-			defer os.Remove(f.Name())
-			executor, err := executors.NewPromqlExecutor(fmt.Sprintf("testdata/%s", tc.testSeriesFile), f.Name())
-			if err != nil {
-				t.Fatalf("failed to create ruels file: %v", err)
+				t.Fatalf("failed to create PromQL executor: %v", err)
 			}
 			defer executor.Close()
 			gatherer := &apiResponsivenessGatherer{}
@@ -310,7 +254,7 @@ func TestAPIResponsivenessSummary(t *testing.T) {
 				{
 					resource:  "pod",
 					verb:      "POST",
-					scope:     "namespace",
+					scope:     "resource",
 					latency:   1.2,
 					count:     123,
 					slowCount: 5,
@@ -320,7 +264,7 @@ func TestAPIResponsivenessSummary(t *testing.T) {
 				{
 					resource:  "pod",
 					verb:      "POST",
-					scope:     "namespace",
+					scope:     "resource",
 					p99:       1200.,
 					count:     "123",
 					slowCount: "5",
@@ -334,7 +278,7 @@ func TestAPIResponsivenessSummary(t *testing.T) {
 				{
 					resource:  "pod",
 					verb:      "POST",
-					scope:     "namespace",
+					scope:     "resource",
 					latency:   1.2,
 					count:     123,
 					slowCount: 5,
@@ -344,7 +288,7 @@ func TestAPIResponsivenessSummary(t *testing.T) {
 				{
 					resource:  "pod",
 					verb:      "POST",
-					scope:     "namespace",
+					scope:     "resource",
 					p99:       1200.,
 					count:     "123",
 					slowCount: "5",
@@ -423,31 +367,37 @@ func TestLogging(t *testing.T) {
 				{
 					resource: "r1",
 					verb:     "POST",
+					scope:    "resource",
 					latency:  1.2,
 				},
 				{
 					resource: "r2",
 					verb:     "POST",
+					scope:    "resource",
 					latency:  .9,
 				},
 				{
 					resource: "r3",
 					verb:     "POST",
+					scope:    "resource",
 					latency:  .8,
 				},
 				{
 					resource: "r4",
 					verb:     "POST",
+					scope:    "resource",
 					latency:  .7,
 				},
 				{
 					resource: "r5",
 					verb:     "POST",
+					scope:    "resource",
 					latency:  .6,
 				},
 				{
 					resource: "r6",
 					verb:     "POST",
+					scope:    "resource",
 					latency:  .5,
 				},
 			},
@@ -468,36 +418,43 @@ func TestLogging(t *testing.T) {
 				{
 					resource: "r1",
 					verb:     "POST",
+					scope:    "resource",
 					latency:  1.2,
 				},
 				{
 					resource: "r2",
 					verb:     "POST",
+					scope:    "resource",
 					latency:  1.9,
 				},
 				{
 					resource: "r3",
 					verb:     "POST",
+					scope:    "resource",
 					latency:  1.8,
 				},
 				{
 					resource: "r4",
 					verb:     "POST",
+					scope:    "resource",
 					latency:  1.7,
 				},
 				{
 					resource: "r5",
 					verb:     "POST",
+					scope:    "resource",
 					latency:  1.6,
 				},
 				{
 					resource: "r6",
 					verb:     "POST",
+					scope:    "resource",
 					latency:  1.5,
 				},
 				{
 					resource: "r7",
 					verb:     "POST",
+					scope:    "resource",
 					latency:  .5,
 				},
 			},
