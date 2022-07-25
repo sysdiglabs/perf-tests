@@ -142,6 +142,21 @@ chaosMonkey:
     simulatedDowntime: 10m
 {{end}}
 steps:
+- name: Starting Kubecollect
+  measurements:
+  - Identifier: SysdigAgent
+    Method: SysdigAgent
+    Params:
+      action: "start"
+      rolloutTimeout: {{$rolloutTimeout}}s
+
+- name: Wait Kubecollect Rollout
+  measurements:
+  - Identifier: SysdigAgent
+    Method: SysdigAgent
+    Params:
+      action: "waitForRollout"
+
 - module:
     path: /modules/measurements.yaml
     params:
@@ -207,22 +222,6 @@ steps:
       mediumJobsPerNamespace: 1
       smallJobSize: {{$SMALL_GROUP_SIZE}}
       smallJobsPerNamespace: 1
-
-- name: Starting Kubecollect
-  measurements:
-  - Identifier: SysdigAgent
-    Method: SysdigAgent
-    Params:
-      action: "start"
-      rolloutTimeout: {{$rolloutTimeout}}s
-
-- name: Wait Kubecollect Rollout
-  measurements:
-  - Identifier: SysdigAgent
-    Method: SysdigAgent
-    Params:
-      action: "waitForRollout"
-
 
 {{if not $IS_SMALL_CLUSTER}}
 # BEGIN scheduler throughput
