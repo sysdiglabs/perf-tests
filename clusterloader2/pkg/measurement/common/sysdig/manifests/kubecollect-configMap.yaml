@@ -8,6 +8,7 @@
 {{$networkTopologyEnabled := DefaultParam .CL2_NETWORK_TOPOLOGY_ENABLED true}}
 {{$podsFromKubeletEnabled := DefaultParam .CL2_PODS_FROM_KUBELET_ENABLED false}}
 {{$bePushEnabled := DefaultParam .CL2_BE_PUSH_ENABLED false}}
+{{$nodeExtendedResourcesEnabled := DefaultParam .CL2_NODE_EXTENDED_RESOURCES_ENABLED false}}
 
 apiVersion: v1
 kind: ConfigMap
@@ -76,5 +77,6 @@ data:
           "port": 10250,
           "use_http": true
       },
-      "k8s_state_be_push_enabled": {{$bePushEnabled}}
+      "k8s_state_be_push_enabled": {{$bePushEnabled}},
+      "k8s_node_extended_resources_enabled": {{$nodeExtendedResourcesEnabled}}
     }
