@@ -92,18 +92,18 @@ func (s *schedulerLatencyMeasurement) Execute(config *measurement.Config) ([]mea
 	provider := config.ClusterFramework.GetClusterConfig().Provider
 	SSHToMasterSupported := provider.Features().SupportSSHToMaster
 
-	c := config.ClusterFramework.GetClientSets().GetClient()
-	nodes, err := c.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return nil, err
-	}
+	//c := config.ClusterFramework.GetClientSets().GetClient()
+	//nodes, err := c.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	var masterRegistered = false
-	for _, node := range nodes.Items {
-		if util.LegacyIsMasterNode(&node) {
-			masterRegistered = true
-		}
-	}
+	//for _, node := range nodes.Items {
+	//	if util.LegacyIsMasterNode(&node) {
+	//		masterRegistered = true
+	//	}
+	//}
 
 	if provider.Features().SchedulerInsecurePortDisabled || (!SSHToMasterSupported && !masterRegistered) {
 		klog.Warningf("unable to fetch scheduler metrics for provider: %s", provider.Name())

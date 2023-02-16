@@ -144,7 +144,7 @@ func (e *etcdMetricsMeasurement) startCollecting(host string, provider provider.
 			case <-time.After(interval):
 				err := collectEtcdDatabaseSize()
 				if err != nil {
-					klog.Errorf("%s: failed to collect etcd database size", e)
+					klog.Errorf("%s: failed to collect etcd database size: %v", e, err)
 					continue
 				}
 			case <-e.stopCh:
