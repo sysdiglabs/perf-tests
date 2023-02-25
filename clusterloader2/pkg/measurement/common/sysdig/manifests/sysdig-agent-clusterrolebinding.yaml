@@ -1,0 +1,14 @@
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: sysdig-agent-cl2
+  labels:
+    app: "sysdig-agent"
+subjects:
+  - kind: ServiceAccount
+    name: sysdig-agent
+    namespace: sysdig-agent-cl2
+roleRef:
+  kind: ClusterRole
+  name: sysdig-agent-cl2
+  apiGroup: rbac.authorization.k8s.io

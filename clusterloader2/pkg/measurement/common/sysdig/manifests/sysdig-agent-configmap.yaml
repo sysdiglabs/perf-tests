@@ -1,0 +1,67 @@
+{{$clusterName := DefaultParam .CL2_CLUSTER_NAME "cl2"}}
+{{$coldStartNum := DefaultParam .CL2_COLD_START_NUM 10}}
+{{$networkTopologyEnabled := DefaultParam .CL2_NETWORK_TOPOLOGY_ENABLED true}}
+{{$perNodeConnDelay := DefaultParam .CL2_PER_NODE_CONN_DELAY 0.25}}
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sysdig-agent
+  namespace: sysdig-agent-cl2
+  labels:
+    app: "sysdig-agent"
+data:
+  dragent.yaml: |
+    new_k8s: true
+    k8s_cluster_name: {{$clusterName}}
+    security:
+      enabled: true
+    commandlines_capture:
+      enabled: true
+    memdump:
+      enabled: true
+
+    app_checks_enabled: false
+    collector: collector-staging.sysdigcloud.com
+    collector_port: 6443
+    events:
+      watchdog:
+        sinsp_event_source_drop_events_timeout_s: 60
+    feature:
+      mode: essentials
+    jmx:
+      enabled: false
+    k8s_wait_before_ready: 1
+    k8s_cluster_size: {{.Nodes}}
+    k8s_coldstart:
+      max_parallel_cold_start: {{$coldStartNum}}
+    k8s_extra_resources:
+      include: []
+    k8s_per_node_conn_delay: {{$perNodeConnDelay}}
+    log:
+      file_priority: debug
+      max_size: 100
+      rotate: 10
+    network_topology:
+      enabled: {{$networkTopologyEnabled}}
+    new_k8s: true
+    prometheus:
+      enabled: false
+    security:
+      k8s_audit_server_port: 7765
+      k8s_audit_server_url: 0.0.0.0
+    skip_events_by_type:
+    - ptrace
+    - read
+    statsd:
+      enabled: false
+    watchdog:
+      max_memory_usage_mb: 2048
+      max_memory_usage_subprocesses:
+        cointerface: 4096
+        mountedfs_reader: 32
+        promscrape: 640
+        sdchecks: 128
+        sdjagent: 256
+        statsite_forwarder: 32
+      sinsp_worker_timeout_s: 120

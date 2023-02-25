@@ -17,6 +17,8 @@ limitations under the License.
 package sysdig
 
 import (
+	"context"
+	"embed"
 	"errors"
 	"fmt"
 	"time"
@@ -24,9 +26,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	"k8s.io/perf-tests/clusterloader2/pkg/config"
 	"k8s.io/perf-tests/clusterloader2/pkg/framework"
+	"k8s.io/perf-tests/clusterloader2/pkg/framework/client"
 	"k8s.io/perf-tests/clusterloader2/pkg/measurement"
 	measurementutil "k8s.io/perf-tests/clusterloader2/pkg/measurement/util"
 	"k8s.io/perf-tests/clusterloader2/pkg/provider"
@@ -41,8 +44,15 @@ const (
 )
 
 const (
-	manifestPathPrefix                   = "$GOPATH/src/k8s.io/perf-tests/clusterloader2/pkg/measurement/common/sysdig/manifests"
-	kubecollectConfigMapManifestFilePath = manifestPathPrefix + "/" + "kubecollect-configMap.yaml"
+	agentSAFilePath                      = "manifests/sysdig-agent-serviceaccount.yaml"
+	agentClusterRoleFilePath             = "manifests/sysdig-agent-clusterrole.yaml"
+	agentClusterRoleBindingFilePath      = "manifests/sysdig-agent-clusterrolebinding.yaml"
+	agentSecretFilePath                  = "manifests/sysdig-agent-secret.yaml"
+	agentConfigMapFilePath               = "manifests/sysdig-agent-configmap.yaml"
+	agentDaemonsetFilePath               = "manifests/sysdig-agent-daemonset.yaml"
+	kubecollectConfigMapManifestFilePath = "manifests/kubecollect-configMap.yaml"
+
+	sysdigAgentNs = "sysdig-agent-cl2"
 )
 
 var (
@@ -51,6 +61,33 @@ var (
 		Kind:    "ConfigMap",
 		Version: "v1",
 	}
+	secretGvk = schema.GroupVersionKind{
+		Group:   "",
+		Kind:    "Secret",
+		Version: "v1",
+	}
+	daemonsetGvk = schema.GroupVersionKind{
+		Group:   "apps",
+		Kind:    "DaemonSet",
+		Version: "v1",
+	}
+	saGvk = schema.GroupVersionKind{
+		Group:   "",
+		Kind:    "ServiceAccount",
+		Version: "v1",
+	}
+	clusterRoleGvk = schema.GroupVersionKind{
+		Group:   "rbac.authorization.k8s.io",
+		Kind:    "ClusterRole",
+		Version: "v1",
+	}
+	clusterRoleBindingGvk = schema.GroupVersionKind{
+		Group:   "rbac.authorization.k8s.io",
+		Kind:    "ClusterRoleBinding",
+		Version: "v1",
+	}
+	//go:embed manifests
+	manifestsFS embed.FS
 )
 
 func init() {
@@ -70,7 +107,7 @@ type sysdigAgentMeasurement struct {
 	resourceInterface dynamic.ResourceInterface
 	framework         *framework.Framework
 
-	selector          *measurementutil.ObjectSelector
+	selector          *util.ObjectSelector
 	desiredAgentCount int
 	rolloutTimeout    time.Duration
 
@@ -122,13 +159,35 @@ func (sam *sysdigAgentMeasurement) start(measurementConfig *measurement.Config) 
 	klog.Infof("sysdig config mapping: %v", mapping)
 	switch measurementConfig.CloudProvider.Name() {
 	case provider.KubemarkName, provider.GKEKubemarkName:
-		if err := sam.framework.ApplyTemplatedManifests(kubecollectConfigMapManifestFilePath, mapping); err != nil {
+		if err := sam.framework.ApplyTemplatedManifests(manifestsFS, kubecollectConfigMapManifestFilePath, mapping); err != nil {
 			return fmt.Errorf("error while creating config: %v", err)
 		}
-		sam.startTime = time.Now()
+	case provider.GCEName, provider.AWSName:
+		if err := client.CreateNamespace(sam.k8sClient, sysdigAgentNs); err != nil {
+			klog.Warningf("failed to create namespace %s: %w", sysdigAgentNs, err)
+		}
+		if err := sam.framework.ApplyTemplatedManifests(manifestsFS, agentSAFilePath, mapping); err != nil {
+			return fmt.Errorf("error while creating service account: %v", err)
+		}
+		if err := sam.framework.ApplyTemplatedManifests(manifestsFS, agentSecretFilePath, mapping); err != nil {
+			return fmt.Errorf("error while creating secret: %v", err)
+		}
+		if err := sam.framework.ApplyTemplatedManifests(manifestsFS, agentConfigMapFilePath, mapping); err != nil {
+			return fmt.Errorf("error while creating config map: %v", err)
+		}
+		if err := sam.framework.ApplyTemplatedManifests(manifestsFS, agentClusterRoleFilePath, mapping); err != nil {
+			return fmt.Errorf("error while creating cluster role: %v", err)
+		}
+		if err := sam.framework.ApplyTemplatedManifests(manifestsFS, agentClusterRoleBindingFilePath, mapping); err != nil {
+			return fmt.Errorf("error while creating cluster role binding: %v", err)
+		}
+		if err := sam.framework.ApplyTemplatedManifests(manifestsFS, agentDaemonsetFilePath, mapping); err != nil {
+			return fmt.Errorf("error while creating daemonset: %v", err)
+		}
 	default:
 		return fmt.Errorf("unsupported provider for sysdig agent %s", measurementConfig.CloudProvider)
 	}
+	sam.startTime = time.Now()
 	return nil
 }
 
@@ -136,15 +195,7 @@ func (sam *sysdigAgentMeasurement) initialize(measurementConfig *measurement.Con
 	var err error
 	sam.desiredAgentCount = measurementConfig.ClusterFramework.GetClusterConfig().Nodes
 	klog.Infof("desired agent count: %d", sam.desiredAgentCount)
-	sam.selector = measurementutil.NewObjectSelector()
-	sam.selector.Namespace, err = util.GetStringOrDefault(measurementConfig.Params, "namespace", "kubemark")
-	if err != nil {
-		return err
-	}
-	sam.selector.LabelSelector, err = util.GetStringOrDefault(measurementConfig.Params, "labelSelector", "name=hollow-node")
-	if err != nil {
-		return err
-	}
+	sam.selector = util.NewObjectSelector()
 	sam.rolloutTimeout, err = util.GetDurationOrDefault(measurementConfig.Params, "rolloutTimeout", defaultRolloutTimeout)
 	if err != nil {
 		return err
@@ -154,9 +205,29 @@ func (sam *sysdigAgentMeasurement) initialize(measurementConfig *measurement.Con
 		if measurementConfig.PrometheusFramework == nil {
 			return errors.New("PrometheusFramework is not enabled")
 		}
+		sam.selector.Namespace, err = util.GetStringOrDefault(measurementConfig.Params, "namespace", "kubemark")
+		if err != nil {
+			return err
+		}
+		sam.selector.LabelSelector, err = util.GetStringOrDefault(measurementConfig.Params, "labelSelector", "name=hollow-node")
+		if err != nil {
+			return err
+		}
 		sam.framework = measurementConfig.PrometheusFramework
 		sam.k8sClient = measurementConfig.PrometheusFramework.GetClientSets().GetClient()
 		sam.dynamicClient = measurementConfig.PrometheusFramework.GetDynamicClients().GetClient()
+	case provider.GCEName, provider.AWSName:
+		sam.selector.Namespace, err = util.GetStringOrDefault(measurementConfig.Params, "namespace", sysdigAgentNs)
+		if err != nil {
+			return err
+		}
+		sam.selector.LabelSelector, err = util.GetStringOrDefault(measurementConfig.Params, "labelSelector", "app.kubernetes.io/name=sysdig-agent")
+		if err != nil {
+			return err
+		}
+		sam.k8sClient = measurementConfig.ClusterFramework.GetClientSets().GetClient()
+		sam.framework = measurementConfig.ClusterFramework
+		sam.dynamicClient = measurementConfig.ClusterFramework.GetDynamicClients().GetClient()
 	default:
 		return fmt.Errorf("unsupported provider for sysdig agent %s", measurementConfig.CloudProvider)
 	}
@@ -170,19 +241,21 @@ func (sam *sysdigAgentMeasurement) waitAgentRollout() error {
 		sam.duration = duration
 	}()
 	if sam.framework == nil {
-		return errors.New("sydgig agent not initialized")
+		return errors.New("sysdig agent not initialized")
 	}
-	stopCh := make(chan struct{})
-	time.AfterFunc(sam.rolloutTimeout, func() {
-		close(stopCh)
-	})
+	ctx, cancel := context.WithTimeout(context.Background(), sam.rolloutTimeout)
+	defer cancel()
 	options := &measurementutil.WaitForPodOptions{
-		Selector:            sam.selector,
 		DesiredPodCount:     func() int { return sam.desiredAgentCount },
 		CallerName:          sam.String(),
-		WaitForPodsInterval: 10 * time.Second,
+		WaitForPodsInterval: 2 * time.Second,
 	}
-	return measurementutil.WaitForPods(sam.k8sClient, stopCh, options)
+	podStore, err := measurementutil.NewPodStore(sam.k8sClient, sam.selector)
+	if err != nil {
+		return err
+	}
+	_, err = measurementutil.WaitForPods(ctx, podStore, options)
+	return err
 }
 
 func (sam *sysdigAgentMeasurement) Dispose() {
@@ -191,7 +264,28 @@ func (sam *sysdigAgentMeasurement) Dispose() {
 		return
 	}
 	if err := sam.framework.DeleteObject(cmGvk, "kubemark", "config"); err != nil {
-		klog.Warningf("Failed to deleted ConfigMap: %v", err)
+		klog.Warningf("Failed to deleted kubecollect ConfigMap: %v", err)
+	}
+	if err := sam.framework.DeleteObject(cmGvk, sysdigAgentNs, "sysdig-agent"); err != nil {
+		klog.Warningf("Failed to deleted agent ConfigMap: %v", err)
+	}
+	if err := sam.framework.DeleteObject(secretGvk, sysdigAgentNs, "sysdig-agent"); err != nil {
+		klog.Warningf("Failed to deleted agent Secret: %v", err)
+	}
+	if err := sam.framework.DeleteObject(daemonsetGvk, sysdigAgentNs, "sysdig-agent"); err != nil {
+		klog.Warningf("Failed to deleted agent Daemonset: %v", err)
+	}
+	if err := sam.framework.DeleteObject(saGvk, sysdigAgentNs, "sysdig-agent"); err != nil {
+		klog.Warningf("Failed to deleted agent ServiceAccount: %v", err)
+	}
+	if err := sam.framework.DeleteObject(saGvk, sysdigAgentNs, "sysdig-agent"); err != nil {
+		klog.Warningf("Failed to deleted agent ServiceAccount: %v", err)
+	}
+	if err := sam.framework.DeleteObject(clusterRoleBindingGvk, "", "sysdig-agent-cl2"); err != nil {
+		klog.Warningf("Failed to deleted agent ClusterRoleBinding: %v", err)
+	}
+	if err := sam.framework.DeleteObject(clusterRoleGvk, "", "sysdig-agent-cl2"); err != nil {
+		klog.Warningf("Failed to deleted agent ClusterRoleBinding: %v", err)
 	}
 }
 
