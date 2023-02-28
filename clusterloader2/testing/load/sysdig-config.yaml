@@ -62,7 +62,6 @@
 {{$schedulerThroughputPodsPerDeployment := DefaultParam .CL2_SCHEDULER_THROUGHPUT_PODS_PER_DEPLOYMENT $totalSchedulerThroughputPods}}
 {{$schedulerThroughputNamespaces := DivideInt $totalSchedulerThroughputPods $schedulerThroughputPodsPerDeployment}}
 
-
 {{$IS_COLDSTART_DISABLED := lt .Nodes 1}}
 {{$coldStartNum := DefaultParam .CL2_COLD_START_NUM 10}}
 # We avoid dividing by zero, and set a high number so that leaseRolloutTimeout
@@ -74,11 +73,6 @@
 {{$maxRandomTimeout := MultiplyInt .Nodes (MultiplyFloat $perNodeConnDelay 1.2)}}
 # Add a margin of 10m to the timeout
 {{$rolloutTimeout := AddInt (MaxInt $leaseRolloutTimeout $maxRandomTimeout) 600}}
-
-{{if ge $SCHEDULER_THROUGHPUT_SIZE $SCHEDULER_THROUGHPUT_PODS_PER_DEPLOYMENT}}
-  {{$schedulerThroughputReplicasPerNamespace = DivideInt $SCHEDULER_THROUGHPUT_SIZE $SCHEDULER_THROUGHPUT_PODS_PER_DEPLOYMENT}}
-  {{$schedulerThroughputPodsPerDeployment = $SCHEDULER_THROUGHPUT_PODS_PER_DEPLOYMENT}}
-{{end}}
 
 # Set schedulerThroughputNamespaces to 1 on small clusters otherwise it will result
 # in an unnecessary number of namespaces.
